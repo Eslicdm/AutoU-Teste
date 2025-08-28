@@ -3,31 +3,29 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
-async def _query_hf_model(payload: dict) -> dict:
-    if not settings.HF_API_TOKEN:
-        raise HTTPException(
-            status_code=503,
-            detail="Serviço de IA indisponível (API token não configurado no ambiente)."
-        )
-
-    headers = {"Authorization": f"Bearer {settings.HF_API_TOKEN}"}
-    async with httpx.AsyncClient() as client:
-        response = await client.post(settings.HF_API_URL, headers=headers, json=payload)
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Erro na API da Hugging Face: {response.text}"
-            )
-        return response.json()
-
 class AIClassifierService:
-    def __init__(self):
-        self.label_map = {
-            "Email de trabalho que exige uma ação ou resposta específica.": "Produtivo",
-            "Email sobre atualização sobre casos em aberto, dúvidas sobre o sistema": "Produtivo",
-            "Email puramente informativo, como um anúncio ou newsletter.": "Improdutivo",
-            "Email social ou de cortesia, como um agradecimento, felicitação.": "Improdutivo"
-        }
+    LABEL_MAP = {
+        "Email de trabalho que exige uma ação ou resposta específica.": "Produtivo",
+        "Email puramente informativo, como um anúncio ou newsletter.": "Improdutivo",
+        "Email social ou de cortesia, como um agradecimento ou felicitação.": "Improdutivo"
+    }
+
+    async def _query_hf_model(self, payload: dict) -> dict:
+        if not settings.HF_API_TOKEN:
+            raise HTTPException(
+                status_code=503,
+                detail="Serviço de IA indisponível (API token não configurado no ambiente)."
+            )
+
+        headers = {"Authorization": f"Bearer {settings.HF_API_TOKEN}"}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(settings.HF_API_URL, headers=headers, json=payload)
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Erro na API da Hugging Face: {response.text}"
+                )
+            return response.json()
 
     async def classify_and_respond(self, content: str) -> dict:
         min_words = 3
@@ -38,13 +36,13 @@ class AIClassifierService:
             }
 
         truncated_content = content[:512]
-        candidate_labels = list(self.label_map.keys())
-        
+        candidate_labels = list(self.LABEL_MAP.keys())
+
         payload = {
             "inputs": truncated_content,
             "parameters": {"candidate_labels": candidate_labels}
         }
-        result = await _query_hf_model(payload)
+        result = await self._query_hf_model(payload)
 
         if isinstance(result, dict) and result.get('error'):
             error_message = result.get('error')
@@ -64,8 +62,8 @@ class AIClassifierService:
                 detail=f"Resposta inesperada da API de IA. Resposta recebida: {str(result)[:200]}"
             )
 
-        best_description = result['labels'][0]
-        classification = self.label_map.get(best_description, "Improdutivo")
+        best_email_description = result['labels'][0]
+        classification = self.LABEL_MAP.get(best_email_description, "Improdutivo")
         response_text = self._generate_response(classification)
 
         return {"classification": classification, "response": response_text}

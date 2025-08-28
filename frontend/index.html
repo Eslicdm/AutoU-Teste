@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoU - Classificador de Emails</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem 3rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        h1 {
+            color: #0052cc;
+            margin-bottom: 0.5rem;
+        }
+        p {
+            color: #555;
+            margin-bottom: 2rem;
+        }
+        textarea, .file-input-wrapper {
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        textarea {
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            min-height: 150px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .file-input-wrapper {
+            border: 2px dashed #0052cc;
+            border-radius: 8px;
+            padding: 1.5rem;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .file-input-wrapper:hover {
+            background-color: #f0f6ff;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .file-label {
+            color: #0052cc;
+            font-weight: bold;
+        }
+        #file-name {
+            margin-top: 0.5rem;
+            color: #555;
+            font-style: italic;
+            font-size: 0.9rem;
+        }
+        button {
+            background-color: #0052cc;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+            margin-top: 1rem;
+        }
+        button:hover {
+            background-color: #003d99;
+        }
+        button:disabled {
+            background-color: #a0a0a0;
+            cursor: not-allowed;
+        }
+        #results {
+            margin-top: 2rem;
+            text-align: left;
+            padding: 1.5rem;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .result-item {
+            margin-bottom: 1rem;
+        }
+        .result-item h3 {
+            margin: 0 0 0.5rem 0;
+            color: #333;
+        }
+        .classification-badge {
+            padding: 0.3rem 0.8rem;
+            border-radius: 16px;
+            font-weight: bold;
+            color: white;
+            display: inline-block;
+        }
+        .Produtivo { background-color: #28a745; }
+        .Improdutivo { background-color: #ffc107; color: #333; }
+        #suggested-response {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            padding: 0.75rem;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Analisador de Emails</h1>
+        <p>Cole o texto do email abaixo ou envie um arquivo (.txt ou .pdf) para classificá-lo e receber uma sugestão de resposta.</p>
+
+        <form id="email-form">
+            <textarea id="email-text" placeholder="Cole o conteúdo do email aqui..."></textarea>
+            
+            <div class="file-input-wrapper" onclick="document.getElementById('email-file').click();">
+                <span class="file-label">Clique para enviar um arquivo</span>
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">Envie o documento .txt ou .pdf</p>
+                <input type="file" id="email-file" name="email_file" accept=".txt,.pdf">
+                <div id="file-name"></div>
+            </div>
+
+            <button type="submit">Analisar Email</button>
+        </form>
+
+        <div id="results" class="hidden">
+            <div class="result-item">
+                <h3>Classificação:</h3>
+                <span id="classification-result" class="classification-badge"></span>
+            </div>
+            <div class="result-item">
+                <h3>Resposta Sugerida:</h3>
+                <div id="suggested-response"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('email-form');
+        const emailTextInput = document.getElementById('email-text');
+        const emailFileInput = document.getElementById('email-file');
+        const fileNameDisplay = document.getElementById('file-name');
+        const resultsDiv = document.getElementById('results');
+        const classificationResultSpan = document.getElementById('classification-result');
+        const suggestedResponseDiv = document.getElementById('suggested-response');
+        const submitButton = form.querySelector('button');
+
+        emailFileInput.addEventListener('change', () => {
+            fileNameDisplay.textContent = emailFileInput.files.length > 0 ? `Arquivo: ${emailFileInput.files[0].name}` : '';
+        });
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData();
+            if (emailTextInput.value.trim()) {
+                formData.append('email_text', emailTextInput.value.trim());
+            } else if (emailFileInput.files.length > 0) {
+                formData.append('email_file', emailFileInput.files[0]);
+            } else {
+                alert('Por favor, insira o texto de um email ou selecione um arquivo.');
+                return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.textContent = 'Analisando...';
+            resultsDiv.classList.add('hidden');
+
+            try {
+                const response = await fetch('/process-email/', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.detail || 'Ocorreu um erro no servidor.');
+
+                classificationResultSpan.textContent = data.classification;
+                classificationResultSpan.className = `classification-badge ${data.classification}`;
+                suggestedResponseDiv.textContent = data.response;
+                resultsDiv.classList.remove('hidden');
+            } catch (error) {
+                alert(`Erro: ${error.message}`);
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Analisar Email';
+            }
+        });
+    </script>
+
+</body>
+</html>

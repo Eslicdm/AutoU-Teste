@@ -5,6 +5,7 @@ export class UIManager {
         this.emailFileInput = document.getElementById('email-file');
         this.fileNameDisplay = document.getElementById('file-name');
         this.resultsDiv = document.getElementById('results');
+        this.classificationDescription = document.getElementById('classification-description');
         this.classificationResultSpan = document.getElementById('classification-result');
         this.suggestedResponseDiv = document.getElementById('suggested-response-text');
         this.submitButton = document.getElementById('submit-button');
@@ -29,7 +30,11 @@ export class UIManager {
             this.classificationResultSpan.classList.add('bg-warning', 'text-dark');
         }
         this.suggestedResponseDiv.textContent = data.response;
+        this.classificationDescription.textContent = data.description;
         this.resultsDiv.classList.remove('d-none');
+        requestAnimationFrame(() => {
+            this.resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
     }
 
     displayError(message) {
@@ -53,12 +58,15 @@ export class UIManager {
         this.emailFileInput.value = null;
         this.fileNameDisplay.textContent = '';
         this.resultsDiv.classList.add('d-none');
+        this.submitButton.disabled = false;
         this.emailTextInput.focus();
     }
 
     listenForFileChanges() {
         this.emailFileInput.addEventListener('change', () => {
-            this.fileNameDisplay.textContent = this.emailFileInput.files.length > 0 ? `Arquivo: ${this.emailFileInput.files[0].name}` : '';
+            this.fileNameDisplay.textContent =
+                this.emailFileInput.files.length > 0 ?
+                    `Arquivo: ${this.emailFileInput.files[0].name}` : '';
         });
     }
 }

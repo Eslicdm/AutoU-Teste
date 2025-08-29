@@ -1,9 +1,28 @@
 import io
-from typing import Optional
+from typing import Optional, Callable, Awaitable, Dict
 
 from fastapi import UploadFile, HTTPException
-from pydantic import BaseModel
 from pypdf import PdfReader
+
+AsyncFileParser = Callable[[UploadFile], Awaitable[str]]
+
+async def _parse_txt(file: UploadFile) -> str:
+    content_bytes = await file.read()
+    return content_bytes.decode('utf-8')
+
+async def _parse_pdf(file: UploadFile) -> str:
+    try:
+        pdf_bytes = await file.read()
+        pdf_stream = io.BytesIO(pdf_bytes)
+        reader = PdfReader(pdf_stream)
+        return "".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao processar o arquivo PDF: {e}")
+
+FILE_PARSERS: Dict[str, AsyncFileParser] = {
+    'text/plain': _parse_txt,
+    'application/pdf': _parse_pdf,
+}
 
 async def extract_text_from_source(
     email_text: Optional[str],
@@ -13,19 +32,11 @@ async def extract_text_from_source(
     if email_text:
         content = email_text
     elif email_file:
-        if email_file.content_type == 'text/plain':
-            content_bytes = await email_file.read()
-            content = content_bytes.decode('utf-8')
-        elif email_file.content_type == 'application/pdf':
-            try:
-                pdf_bytes = await email_file.read()
-                pdf_stream = io.BytesIO(pdf_bytes)
-                reader = PdfReader(pdf_stream)
-                content = "".join(page.extract_text() or "" for page in reader.pages)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Erro ao processar o arquivo PDF: {e}")
-        else:
-            raise HTTPException(status_code=400, detail="Tipo de arquivo não suportado. Por favor, envie um arquivo .txt ou .pdf.")
+        parser = FILE_PARSERS.get(email_file.content_type)
+        if not parser:
+            raise HTTPException(status_code=400, detail="Tipo de arquivo não suportado")
+        
+        content = await parser(email_file)
     else:
         raise HTTPException(status_code=400, detail="Nenhum texto de e-mail ou arquivo fornecido.")
 

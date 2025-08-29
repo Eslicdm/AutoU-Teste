@@ -2,8 +2,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
 
-from app.services.ai_classifier import AIClassifierService
-from app.services.email_parser import extract_text_from_source
+from app.api.services.ai_classifier import AIClassifierService
+from app.api.services.email_parser import extract_text_from_source
 
 router = APIRouter()
 
@@ -20,4 +20,7 @@ async def process_email(
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        raise HTTPException(status_code=500, detail=f"Erro inesperado no processamento do email: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro inesperado no processamento do email: {str(e)}"
+        )

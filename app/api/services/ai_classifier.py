@@ -14,7 +14,7 @@ class AIClassifierService:
         if not settings.HF_API_TOKEN:
             raise HTTPException(
                 status_code=503,
-                detail="Serviço de IA indisponível (API token não configurado no ambiente)."
+                detail="Serviço de IA indisponível (API token não configurado)."
             )
 
         headers = {"Authorization": f"Bearer {settings.HF_API_TOKEN}"}

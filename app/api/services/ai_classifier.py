@@ -3,12 +3,35 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
+
 class AIClassifierService:
     LABEL_MAP = {
-        "Email de trabalho que exige uma ação ou resposta específica.": "Produtivo",
-        "Email puramente informativo, como um anúncio ou newsletter.": "Improdutivo",
-        "Email social ou de cortesia, como um agradecimento ou felicitação.": "Improdutivo"
+        "solicitação de suporte técnico": "Produtivo",
+        "pedido de atualização ou status": "Produtivo",
+        "dúvida sobre produto ou serviço": "Produtivo",
+        "reclamação ou problema técnico": "Produtivo",
+        "agradecimento pessoal": "Improdutivo",
+        "conversa informal ou social": "Improdutivo",
+        "felicitações ou cumprimentos": "Improdutivo",
+        "spam ou mensagem irrelevante": "Improdutivo"
     }
+
+    PRODUCTIVE_KEYWORDS = [
+        'problema', 'erro', 'não funciona', 'ajuda', 'suporte', 'dúvida',
+        'como fazer', 'não consigo', 'preciso', 'urgente', 'status',
+        'atualização', 'prazo', 'quando', 'onde', 'por que não',
+        'falha', 'bug', 'solicito', 'gostaria de', 'poderia',
+        'informação', 'esclarecimento', 'orientação'
+    ]
+
+    UNPRODUCTIVE_KEYWORDS = [
+        'obrigado', 'obrigada', 'valeu', 'muito obrigado', 'agradeço',
+        'parabéns', 'feliz', 'felicidades', 'felicitações', 'aniversário',
+        'natal', 'ano novo', 'feriado', 'oi', 'olá', 'tudo bem',
+        'biscoito', 'bolo', 'comida', 'receita', 'pessoal',
+        'abraço', 'beijo', 'tchau', 'até logo', 'bom dia',
+        'boa tarde', 'boa noite', 'fim de semana'
+    ]
 
     async def _query_hf_model(self, payload: dict) -> dict:
         if not settings.HF_API_TOKEN:
@@ -27,12 +50,38 @@ class AIClassifierService:
                 )
             return response.json()
 
+    def _preprocess_and_classify_keywords(self, content: str) -> str:
+        content_lower = content.lower()
+
+        productive_score = sum(1 for keyword in self.PRODUCTIVE_KEYWORDS
+                               if keyword in content_lower)
+        unproductive_score = sum(1 for keyword in self.UNPRODUCTIVE_KEYWORDS
+                                 if keyword in content_lower)
+
+        if unproductive_score > productive_score and unproductive_score >= 1:
+            return "Improdutivo"
+        elif productive_score > unproductive_score and productive_score >= 2:
+            return "Produtivo"
+
+        if len(content.strip().split()) <= 5:
+            simple_patterns = ['obrigado', 'valeu', 'oi', 'olá', 'tchau', 'biscoito', 'bolo']
+            if any(pattern in content_lower for pattern in simple_patterns):
+                return "Improdutivo"
+
+        return None
+
     async def classify_and_respond(self, content: str) -> dict:
-        min_words = 3
-        if len(content.strip().split()) < min_words:
+        if len(content.strip().split()) < 3:
             return {
                 "classification": "Improdutivo",
                 "response": self._generate_response("Improdutivo")
+            }
+
+        keyword_classification = self._preprocess_and_classify_keywords(content)
+        if keyword_classification:
+            return {
+                "classification": keyword_classification,
+                "response": self._generate_response(keyword_classification)
             }
 
         truncated_content = content[:512]
@@ -42,14 +91,23 @@ class AIClassifierService:
             "inputs": truncated_content,
             "parameters": {"candidate_labels": candidate_labels}
         }
-        result = await self._query_hf_model(payload)
+
+        try:
+            result = await self._query_hf_model(payload)
+        except Exception as e:
+            if any(word in content.lower() for word in ['obrigado', 'biscoito', 'bolo', 'oi', 'olá']):
+                return {
+                    "classification": "Improdutivo",
+                    "response": self._generate_response("Improdutivo")
+                }
+            raise e
 
         if isinstance(result, dict) and result.get('error'):
             error_message = result.get('error')
             if 'is currently loading' in error_message:
                 raise HTTPException(
                     status_code=503,
-                    detail=f"Serviço de IA indisponível no momento. (Erro: {error_message})"
+                    detail="O modelo de IA está sendo preparado. Por favor, tente novamente em alguns segundos."
                 )
             raise HTTPException(
                 status_code=500,
@@ -64,6 +122,13 @@ class AIClassifierService:
 
         best_email_description = result['labels'][0]
         classification = self.LABEL_MAP.get(best_email_description, "Improdutivo")
+
+        if hasattr(result, 'scores') and len(result.get('scores', [])) > 0:
+            confidence = result['scores'][0]
+            if confidence < 0.7 and any(word in content.lower()
+                                        for word in ['obrigado', 'biscoito', 'bolo', 'valeu']):
+                classification = "Improdutivo"
+
         response_text = self._generate_response(classification)
 
         return {"classification": classification, "response": response_text}
